@@ -24,6 +24,10 @@ if uploaded_file:
         df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
         df = df.dropna(subset=['Time'])
 
+        if df.empty:
+            st.warning("The uploaded file contains no valid time data after processing. Please check your 'Time' column format.")
+            st.stop()
+
         machine_groups = df.groupby('Machine Name')
         output = BytesIO()
 
@@ -88,14 +92,23 @@ if uploaded_file:
                 worksheet.set_column(col_num, col_num, 22)
 
             # Create Gantt chart
-            fig, ax = plt.subplots(figsize=(12, len(machine_groups) * 0.6))
+            # Increase the width of the figure significantly
+            # Original: figsize=(12, len(machine_groups) * 0.6)
+            # New width (e.g., 20 or 25, adjust as needed)
+            fig, ax = plt.subplots(figsize=(20, len(machine_groups) * 0.6)) # <-- Increased width here
 
             cmap = plt.get_cmap("tab10")
-            machine_colors = {name: cmap(i % 10) for i, name in enumerate(machine_groups.groups.keys())}
+            machines_list = sorted(machine_groups.groups.keys()) # Ensure consistent order
+            machine_colors = {name: cmap(i % 10) for i, name in enumerate(machines_list)}
 
             y_labels = []
-            for idx, (machine, machine_df) in enumerate(machine_groups):
-                machine_df = machine_df.sort_values("Time")
+            for idx, machine in enumerate(machines_list): # Iterate through sorted machines
+                machine_df = df[(df['Machine Name'] == machine)].sort_values("Time")
+                
+                # Skip if no data for the machine after filtering
+                if machine_df.empty:
+                    continue
+
                 blocks = []
                 start = machine_df.iloc[0]['Time']
                 prev = start
@@ -107,7 +120,7 @@ if uploaded_file:
                     prev = current
                 blocks.append((start, prev))
 
-                y_labels.append(machine)
+                y_labels.append(machine) # Add label only if machine has data
                 for block_start, block_end in blocks:
                     ax.barh(
                         y=idx,
@@ -120,21 +133,49 @@ if uploaded_file:
 
             ax.set_yticks(range(len(y_labels)))
             ax.set_yticklabels(y_labels)
-            ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+
+            # Ensure x-axis ticks are formatted properly and are not too dense
+            # Consider adjusting interval if 1 hour is still too crowded
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=1)) # Keep 1-hour interval for now
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-            ax.set_xlim(datetime.combine(df['Time'].min().date(), datetime.strptime("06:00", "%H:%M").time()),
-                        datetime.combine(df['Time'].min().date(), datetime.strptime("23:59", "%H:%M").time()))
+            
+            # Dynamic X-axis limits based on overall data range, potentially padding
+            if not df.empty:
+                min_time_data = df['Time'].min()
+                max_time_data = df['Time'].max()
+                
+                # To ensure the axis covers the full relevant day(s) and avoid cutting off data
+                # Let's target the actual first and last data points for the limits
+                # If you want a fixed 6 AM to 11:59 PM range for the *day of the first entry*, use the commented out line below
+                # ax.set_xlim(datetime.combine(min_time_data.date(), datetime.strptime("06:00", "%H:%M").time()),
+                #             datetime.combine(min_time_data.date(), datetime.strptime("23:59", "%H:%M").time()))
+
+                # More dynamic: Use actual min/max time with padding
+                x_start_limit = min_time_data.replace(hour=6, minute=0, second=0, microsecond=0) # Start at 6 AM of the first day
+                x_end_limit = max_time_data.replace(hour=23, minute=59, second=0, microsecond=0) # End at 11:59 PM of the last day
+
+                # If the data spans multiple days, this will show the full range.
+                # If only one day, it will show from 6AM to 11:59 PM for that day, encompassing all data.
+                ax.set_xlim(x_start_limit, x_end_limit)
+
+
             ax.set_xlabel("Time")
             ax.set_title("Machine Usage Timeline")
             ax.grid(True, axis='x', linestyle='--', color='gray')
-            ax.grid(False, axis='y')
+            ax.grid(False, axis='y') # Keep y-grid off
+
+            # Adjust x-axis tick label rotation for readability if they overlap
+            fig.autofmt_xdate()
 
             chart_image = BytesIO()
+            # Increase DPI for sharper image, especially for wider charts
             plt.tight_layout()
-            plt.savefig(chart_image, format='png', dpi=200)
+            plt.savefig(chart_image, format='png', dpi=300) # <-- Increased DPI here
             plt.close()
 
-            worksheet.insert_image("F1", "timeline.png", {"image_data": chart_image, "x_scale": 1, "y_scale": 1})
+            # The 'x_scale' and 'y_scale' in insert_image control how large the image appears in Excel.
+            # If the image is too big, you might need to adjust these or Excel column/row sizes.
+            worksheet.insert_image("F1", "timeline.png", {"image_data": chart_image, "x_scale": 0.8, "y_scale": 0.8}) # Adjusted scale for Excel
 
         st.success("✅ Summary report generated!")
         st.download_button("📥 Download Summary Report", data=output.getvalue(),
