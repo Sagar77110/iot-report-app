@@ -91,11 +91,7 @@ if uploaded_file:
             for col_num in range(5):
                 worksheet.set_column(col_num, col_num, 22)
 
-            # Create Gantt chart
-            # Increase the width of the figure significantly
-            # Original: figsize=(12, len(machine_groups) * 0.6)
-            # New width (e.g., 20 or 25, adjust as needed)
-            fig, ax = plt.subplots(figsize=(60, len(machine_groups) * 0.6)) # <-- Increased width here
+            fig, ax = plt.subplots(figsize=(40, len(machine_groups) * 0.6)) # <-- Increased width here
 
             cmap = plt.get_cmap("tab10")
             machines_list = sorted(machine_groups.groups.keys()) # Ensure consistent order
